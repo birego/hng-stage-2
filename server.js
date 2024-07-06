@@ -109,6 +109,33 @@ app.post('/auth/login', async (req, res) => {
       }
     });
   });
+  const authenticate = (req, res, next) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return res.sendStatus(403);
+  
+    const token = authHeader.split(' ')[1];
+    jwt.verify(token, JWT_SECRET, (err, user) => {
+      if (err) return res.sendStatus(403);
+      req.user = user;
+      next();
+    });
+  };
+  app.get('/api/users/:id', authenticate, async (req, res) => {
+    const user = await prisma.user.findUnique({ where: { userId: req.params.id } });
+    if (!user) return res.sendStatus(404);
+  
+    res.status(200).json({
+      status: 'success',
+      message: 'User record fetched successfully',
+      data: {
+        userId: user.userId,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email,
+        phone: user.phone
+      }
+    });
+  });
   
 app.listen(port, (req, res) => {
   console.log(`Server is running on port http://localhost:${port}`);
