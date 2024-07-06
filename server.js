@@ -80,6 +80,36 @@ app.post("/auth/register", async (req, res) => {
     });
   }
 });
+app.post('/auth/login', async (req, res) => {
+    const { email, password } = req.body;
+  
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (!user || !(await bcrypt.compare(password, user.password))) {
+      return res.status(401).json({
+        status: 'Bad request',
+        message: 'Authentication failed',
+        statusCode: 401
+      });
+    }
+  
+    const token = jwt.sign({ userId: user.userId }, JWT_SECRET, { expiresIn: '1h' });
+  
+    res.status(200).json({
+      status: 'success',
+      message: 'Login successful',
+      data: {
+        accessToken: token,
+        user: {
+          userId: user.userId,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          email: user.email,
+          phone: user.phone
+        }
+      }
+    });
+  });
+  
 app.listen(port, (req, res) => {
   console.log(`Server is running on port http://localhost:${port}`);
 });
