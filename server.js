@@ -11,7 +11,7 @@ const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
-const JWT_SECRET = process.env.JWT_SECRET 
+const JWT_SECRET = process.env.JWT_SECRET;
 const validateUser = (user) => {
   const errors = [];
   if (!user.firstName)
@@ -80,63 +80,144 @@ app.post("/auth/register", async (req, res) => {
     });
   }
 });
-app.post('/auth/login', async (req, res) => {
-    const { email, password } = req.body;
-  
-    const user = await prisma.user.findUnique({ where: { email } });
-    if (!user || !(await bcrypt.compare(password, user.password))) {
-      return res.status(401).json({
-        status: 'Bad request',
-        message: 'Authentication failed',
-        statusCode: 401
-      });
-    }
-  
-    const token = jwt.sign({ userId: user.userId }, JWT_SECRET, { expiresIn: '1h' });
-  
-    res.status(200).json({
-      status: 'success',
-      message: 'Login successful',
-      data: {
-        accessToken: token,
-        user: {
-          userId: user.userId,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          email: user.email,
-          phone: user.phone
-        }
-      }
+app.post("/auth/login", async (req, res) => {
+  const { email, password } = req.body;
+
+  const user = await prisma.user.findUnique({ where: { email } });
+  if (!user || !(await bcrypt.compare(password, user.password))) {
+    return res.status(401).json({
+      status: "Bad request",
+      message: "Authentication failed",
+      statusCode: 401,
     });
+  }
+
+  const token = jwt.sign({ userId: user.userId }, JWT_SECRET, {
+    expiresIn: "1h",
   });
-  const authenticate = (req, res, next) => {
-    const authHeader = req.headers.authorization;
-    if (!authHeader) return res.sendStatus(403);
-  
-    const token = authHeader.split(' ')[1];
-    jwt.verify(token, JWT_SECRET, (err, user) => {
-      if (err) return res.sendStatus(403);
-      req.user = user;
-      next();
-    });
-  };
-  app.get('/api/users/:id', authenticate, async (req, res) => {
-    const user = await prisma.user.findUnique({ where: { userId: req.params.id } });
-    if (!user) return res.sendStatus(404);
-  
-    res.status(200).json({
-      status: 'success',
-      message: 'User record fetched successfully',
-      data: {
+
+  res.status(200).json({
+    status: "success",
+    message: "Login successful",
+    data: {
+      accessToken: token,
+      user: {
         userId: user.userId,
         firstName: user.firstName,
         lastName: user.lastName,
         email: user.email,
-        phone: user.phone
-      }
-    });
+        phone: user.phone,
+      },
+    },
   });
-  
+});
+const authenticate = (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) return res.sendStatus(403);
+
+  const token = authHeader.split(" ")[1];
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) return res.sendStatus(403);
+    req.user = user;
+    next();
+  });
+};
+app.get("/api/users/:id", authenticate, async (req, res) => {
+  const user = await prisma.user.findUnique({
+    where: { userId: req.params.id },
+  });
+  if (!user) return res.sendStatus(404);
+
+  res.status(200).json({
+    status: "success",
+    message: "User record fetched successfully",
+    data: {
+      userId: user.userId,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      email: user.email,
+      phone: user.phone,
+    },
+  });
+});
+app.get("/api/organisations", authenticate, async (req, res) => {
+  const organisations = await prisma.organisationsOnUsers.findMany({
+    where: { userId: req.user.userId },
+    include: { organisation: true },
+  });
+
+  res.status(200).json({
+    status: "success",
+    message: "Organisations fetched successfully",
+    data: {
+      organisations: organisations.map(({ organisation }) => ({
+        orgId: organisation.orgId,
+        name: organisation.name,
+        description: organisation.description,
+      })),
+    },
+  });
+});
+app.get("/api/organisations/:orgId", authenticate, async (req, res) => {
+  const organisation = await prisma.organisation.findUnique({
+    where: { orgId: req.params.orgId },
+  });
+  if (!organisation) return res.sendStatus(404);
+
+  res.status(200).json({
+    status: "success",
+    message: "Organisation record fetched successfully",
+    data: {
+      orgId: organisation.orgId,
+      name: organisation.name,
+      description: organisation.description,
+    },
+  });
+});
+
+app.post("/api/organisations", authenticate, async (req, res) => {
+  const { name, description } = req.body;
+
+  if (!name) {
+    return res.status(422).json({
+      errors: [{ field: "name", message: "Name is required" }],
+    });
+  }
+
+  const organisation = await prisma.organisation.create({
+    data: {
+      name,
+      description,
+      users: { create: { userId: req.user.userId } },
+    },
+  });
+
+  res.status(201).json({
+    status: "success",
+    message: "Organisation created successfully",
+    data: {
+      orgId: organisation.orgId,
+      name: organisation.name,
+      description: organisation.description,
+    },
+  });
+});
+
+app.post("/api/organisations/:orgId/users", authenticate, async (req, res) => {
+  const { userId } = req.body;
+
+  await prisma.organisationsOnUsers.create({
+    data: {
+      userId,
+      orgId: req.params.orgId,
+    },
+  });
+
+  res.status(200).json({
+    status: "success",
+    message: "User added to organisation successfully",
+  });
+});
 app.listen(port, (req, res) => {
   console.log(`Server is running on port http://localhost:${port}`);
 });
