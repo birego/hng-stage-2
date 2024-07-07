@@ -3,83 +3,92 @@ import dotenv from "dotenv";
 import cors from "cors";
 import bodyParser from "body-parser";
 import bcrypt from "bcrypt";
-import jsonwebtoken from "jsonwebtoken";
+import jwt from "jsonwebtoken";
+import { PrismaClient } from "@prisma/client";
 
 dotenv.config();
 const port = process.env.PORT || 3000;
 const app = express();
+const prisma = new PrismaClient();
+
 app.use(cors());
 app.use(bodyParser.json());
 
-const JWT_SECRET = process.env.JWT_SECRET;
+const JWT_SECRET = process.env.JWT_SECRET || "123a";
+
 const validateUser = (user) => {
   const errors = [];
-  if (!user.firstName)
-    errors.push({ field: "firstName", message: "First name is required" });
-  if (!user.lastName)
-    errors.push({ field: "lastName", message: "Last name is required" });
-  if (!user.email)
-    errors.push({ field: "email", message: "Email is required" });
-  if (!user.password)
-    errors.push({ field: "password", message: "Password is required" });
+  if (!user.firstName) errors.push({ field: "firstName", message: "First name is required" });
+  if (!user.lastName) errors.push({ field: "lastName", message: "Last name is required" });
+  if (!user.email) errors.push({ field: "email", message: "Email is required" });
+  if (!user.password) errors.push({ field: "password", message: "Password is required" });
   return errors;
 };
+
 app.post("/auth/register", async (req, res) => {
-  const { firstName, lastName, email, password, phone } = req.body;
-
-  const errors = validateUser(req.body);
-  if (errors.length) {
-    return res.status(422).json({ errors });
-  }
-
-  try {
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    const user = await prisma.user.create({
-      data: {
-        firstName,
-        lastName,
-        email,
-        password: hashedPassword,
-        phone,
-        organisations: {
-          create: {
-            organisation: {
-              create: {
-                name: `${firstName}'s Organisation`,
+    console.log("Register request body:", req.body);
+  
+    const { firstName, lastName, email, password, phone } = req.body;
+  
+    const errors = validateUser(req.body);
+    if (errors.length) {
+      return res.status(422).json({ errors });
+    }
+  
+    try {
+      const hashedPassword = await bcrypt.hash(password, 10);
+      console.log("Hashed password:", hashedPassword);
+  
+      const user = await prisma.user.create({
+        data: {
+          firstName,
+          lastName,
+          email,
+          password: hashedPassword,
+          phone,
+          organisations: {
+            create: [{
+              org: {
+                create: {
+                  name: `${firstName}'s Organisation`,
+                },
               },
-            },
+            }],
           },
         },
-      },
-    });
-
-    const token = jwt.sign({ userId: user.userId }, JWT_SECRET, {
-      expiresIn: "1h",
-    });
-
-    res.status(201).json({
-      status: "success",
-      message: "Registration successful",
-      data: {
-        accessToken: token,
-        user: {
-          userId: user.userId,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          email: user.email,
-          phone: user.phone,
+      });
+  
+      console.log("User created:", user);
+  
+      const token = jwt.sign({ userId: user.userId }, JWT_SECRET, {
+        expiresIn: "1h",
+      });
+  
+      res.status(201).json({
+        status: "success",
+        message: "Registration successful",
+        data: {
+          accessToken: token,
+          user: {
+            userId: user.userId,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            email: user.email,
+            phone: user.phone,
+          },
         },
-      },
-    });
-  } catch (error) {
-    res.status(400).json({
-      status: "Bad request",
-      message: "Registration unsuccessful",
-      statusCode: 400,
-    });
-  }
-});
+      });
+    } catch (error) {
+      console.error("Error during registration:", error);
+      res.status(400).json({
+        status: "Bad request",
+        message: "Registration unsuccessful",
+        statusCode: 400,
+      });
+    }
+  });
+  
+
 app.post("/auth/login", async (req, res) => {
   const { email, password } = req.body;
 
@@ -111,6 +120,7 @@ app.post("/auth/login", async (req, res) => {
     },
   });
 });
+
 const authenticate = (req, res, next) => {
   const authHeader = req.headers.authorization;
   if (!authHeader) return res.sendStatus(403);
@@ -122,6 +132,7 @@ const authenticate = (req, res, next) => {
     next();
   });
 };
+
 app.get("/api/users/:id", authenticate, async (req, res) => {
   const user = await prisma.user.findUnique({
     where: { userId: req.params.id },
@@ -140,6 +151,7 @@ app.get("/api/users/:id", authenticate, async (req, res) => {
     },
   });
 });
+
 app.get("/api/organisations", authenticate, async (req, res) => {
   const organisations = await prisma.organisationsOnUsers.findMany({
     where: { userId: req.user.userId },
@@ -158,6 +170,7 @@ app.get("/api/organisations", authenticate, async (req, res) => {
     },
   });
 });
+
 app.get("/api/organisations/:orgId", authenticate, async (req, res) => {
   const organisation = await prisma.organisation.findUnique({
     where: { orgId: req.params.orgId },
@@ -218,6 +231,7 @@ app.post("/api/organisations/:orgId/users", authenticate, async (req, res) => {
     message: "User added to organisation successfully",
   });
 });
-app.listen(port, (req, res) => {
+
+app.listen(port, () => {
   console.log(`Server is running on port http://localhost:${port}`);
 });
