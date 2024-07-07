@@ -26,68 +26,67 @@ const validateUser = (user) => {
 };
 
 app.post("/auth/register", async (req, res) => {
-    console.log("Register request body:", req.body);
-  
-    const { firstName, lastName, email, password, phone } = req.body;
-  
-    const errors = validateUser(req.body);
-    if (errors.length) {
-      return res.status(422).json({ errors });
-    }
-  
-    try {
-      const hashedPassword = await bcrypt.hash(password, 10);
-      console.log("Hashed password:", hashedPassword);
-  
-      const user = await prisma.user.create({
-        data: {
-          firstName,
-          lastName,
-          email,
-          password: hashedPassword,
-          phone,
-          organisations: {
-            create: [{
-              org: {
-                create: {
-                  name: `${firstName}'s Organisation`,
-                },
+  console.log("Register request body:", req.body);
+
+  const { firstName, lastName, email, password, phone } = req.body;
+
+  const errors = validateUser(req.body);
+  if (errors.length) {
+    return res.status(422).json({ errors });
+  }
+
+  try {
+    const hashedPassword = await bcrypt.hash(password, 10);
+    console.log("Hashed password:", hashedPassword);
+
+    const user = await prisma.user.create({
+      data: {
+        firstName,
+        lastName,
+        email,
+        password: hashedPassword,
+        phone,
+        organisations: {
+          create: [{
+            org: {
+              create: {
+                name: `${firstName}'s Organisation`,
               },
-            }],
-          },
+            },
+          }],
         },
-      });
-  
-      console.log("User created:", user);
-  
-      const token = jwt.sign({ userId: user.userId }, JWT_SECRET, {
-        expiresIn: "1h",
-      });
-  
-      res.status(201).json({
-        status: "success",
-        message: "Registration successful",
-        data: {
-          accessToken: token,
-          user: {
-            userId: user.userId,
-            firstName: user.firstName,
-            lastName: user.lastName,
-            email: user.email,
-            phone: user.phone,
-          },
+      },
+    });
+
+    console.log("User created:", user);
+
+    const token = jwt.sign({ userId: user.userId }, JWT_SECRET, {
+      expiresIn: "1h",
+    });
+
+    res.status(201).json({
+      status: "success",
+      message: "Registration successful",
+      data: {
+        accessToken: token,
+        user: {
+          userId: user.userId,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          email: user.email,
+          phone: user.phone,
         },
-      });
-    } catch (error) {
-      console.error("Error during registration:", error);
-      res.status(400).json({
-        status: "Bad request",
-        message: "Registration unsuccessful",
-        statusCode: 400,
-      });
-    }
-  });
-  
+      },
+    });
+  } catch (error) {
+    console.error("Error during registration:", error);
+    res.status(400).json({
+      status: "Bad request",
+      message: "Registration unsuccessful",
+      statusCode: 400,
+    });
+  }
+});
 
 app.post("/auth/login", async (req, res) => {
   const { email, password } = req.body;
@@ -232,6 +231,4 @@ app.post("/api/organisations/:orgId/users", authenticate, async (req, res) => {
   });
 });
 
-app.listen(port, () => {
-  console.log(`Server is running on port http://localhost:${port}`);
-});
+export default app;
