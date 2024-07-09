@@ -7,7 +7,7 @@ import jwt from "jsonwebtoken";
 import { PrismaClient } from "@prisma/client";
 
 dotenv.config();
-const port = process.env.PORT || 3000;
+
 const app = express();
 const prisma = new PrismaClient();
 
@@ -233,10 +233,6 @@ app.post("/api/organisations/:orgId/users", authenticate, async (req, res) => {
     status: "success",
     message: "User added to organisation successfully",
   });
-});
-
-app.listen(port, () => {
-  console.log(`Server is running on port ${port}`);
 });
 
 export default app;
