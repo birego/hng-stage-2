@@ -1,0 +1,21 @@
+{
+    "version": 2,
+    "builds": [
+      {
+        "src": "app.js",
+        "use": "@vercel/node"
+      }
+    ],
+    "routes": [
+      {
+        "src": "/(.*)",
+        "dest": "/app.js"
+      }
+    ],
+    "env": {
+      "JWT_SECRET": "123a",
+      "DATABASE_URL": "postgresql://user:password@host:port/database",
+      "PORT": "3000"
+    }
+  }
+  

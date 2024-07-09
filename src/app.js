@@ -1,130 +1,22 @@
-import express from "express";
-import dotenv from "dotenv";
-import cors from "cors";
-import bodyParser from "body-parser";
-import bcrypt from "bcrypt";
-import jwt from "jsonwebtoken";
-import { PrismaClient } from "@prisma/client";
+import express from 'express';
+import { PrismaClient } from '@prisma/client';
+import bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
+import { body, validationResult } from 'express-validator';
 
-dotenv.config();
-const port = process.env.PORT || 3000;
-const app = express();
 const prisma = new PrismaClient();
+const app = express();
 
-app.use(cors());
-app.use(bodyParser.json());
+app.use(express.json());
 
-const JWT_SECRET = process.env.JWT_SECRET || "123a";
+const JWT_SECRET = process.env.JWT_SECRET || '123a';
 
-const validateUser = (user) => {
-  const errors = [];
-  if (!user.firstName) errors.push({ field: "firstName", message: "First name is required" });
-  if (!user.lastName) errors.push({ field: "lastName", message: "Last name is required" });
-  if (!user.email) errors.push({ field: "email", message: "Email is required" });
-  if (!user.password) errors.push({ field: "password", message: "Password is required" });
-  return errors;
-};
+const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
 
-app.post("/auth/register", async (req, res) => {
-  console.log("Register request body:", req.body);
+  if (token == null) return res.sendStatus(401);
 
-  const { firstName, lastName, email, password, phone } = req.body;
-
-  const errors = validateUser(req.body);
-  if (errors.length) {
-    return res.status(422).json({ errors });
-  }
-
-  try {
-    const hashedPassword = await bcrypt.hash(password, 10);
-    console.log("Hashed password:", hashedPassword);
-
-    const user = await prisma.user.create({
-      data: {
-        firstName,
-        lastName,
-        email,
-        password: hashedPassword,
-        phone,
-        organisations: {
-          create: [{
-            org: {
-              create: {
-                name: `${firstName}'s Organisation`,
-              },
-            },
-          }],
-        },
-      },
-    });
-
-    console.log("User created:", user);
-
-    const token = jwt.sign({ userId: user.userId }, JWT_SECRET, {
-      expiresIn: "1h",
-    });
-
-    res.status(201).json({
-      status: "success",
-      message: "Registration successful",
-      data: {
-        accessToken: token,
-        user: {
-          userId: user.userId,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          email: user.email,
-          phone: user.phone,
-        },
-      },
-    });
-  } catch (error) {
-    console.error("Error during registration:", error);
-    res.status(400).json({
-      status: "Bad request",
-      message: "Registration unsuccessful",
-      statusCode: 400,
-    });
-  }
-});
-
-app.post("/auth/login", async (req, res) => {
-  const { email, password } = req.body;
-
-  const user = await prisma.user.findUnique({ where: { email } });
-  if (!user || !(await bcrypt.compare(password, user.password))) {
-    return res.status(401).json({
-      status: "Bad request",
-      message: "Authentication failed",
-      statusCode: 401,
-    });
-  }
-
-  const token = jwt.sign({ userId: user.userId }, JWT_SECRET, {
-    expiresIn: "1h",
-  });
-
-  res.status(200).json({
-    status: "success",
-    message: "Login successful",
-    data: {
-      accessToken: token,
-      user: {
-        userId: user.userId,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        email: user.email,
-        phone: user.phone,
-      },
-    },
-  });
-});
-
-const authenticate = (req, res, next) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader) return res.sendStatus(403);
-
-  const token = authHeader.split(" ")[1];
   jwt.verify(token, JWT_SECRET, (err, user) => {
     if (err) return res.sendStatus(403);
     req.user = user;
@@ -132,103 +24,231 @@ const authenticate = (req, res, next) => {
   });
 };
 
-app.get("/api/users/:id", authenticate, async (req, res) => {
-  const user = await prisma.user.findUnique({
-    where: { userId: req.params.id },
-  });
-  if (!user) return res.sendStatus(404);
+app.post('/auth/register', 
+  body('firstName').notEmpty().withMessage('First name is required'),
+  body('lastName').notEmpty().withMessage('Last name is required'),
+  body('email').isEmail().withMessage('Email is required'),
+  body('password').isLength({ min: 5 }).withMessage('Password is required'),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(422).json({ errors: errors.array() });
+    }
 
-  res.status(200).json({
-    status: "success",
-    message: "User record fetched successfully",
-    data: {
-      userId: user.userId,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      email: user.email,
-      phone: user.phone,
-    },
-  });
-});
+    const { firstName, lastName, email, password, phone } = req.body;
 
-app.get("/api/organisations", authenticate, async (req, res) => {
-  const organisations = await prisma.organisationsOnUsers.findMany({
-    where: { userId: req.user.userId },
-    include: { organisation: true },
-  });
+    try {
+      const hashedPassword = await bcrypt.hash(password, 10);
+      const user = await prisma.user.create({
+        data: {
+          firstName,
+          lastName,
+          email,
+          password: hashedPassword,
+          phone
+        }
+      });
 
-  res.status(200).json({
-    status: "success",
-    message: "Organisations fetched successfully",
-    data: {
-      organisations: organisations.map(({ organisation }) => ({
-        orgId: organisation.orgId,
-        name: organisation.name,
-        description: organisation.description,
-      })),
-    },
-  });
-});
+      const organisation = await prisma.organisation.create({
+        data: {
+          name: 'default',
+          description: 'Default organisation',
+          users: {
+            create: {
+              user: { connect: { userId: user.userId } }
+            }
+          }
+        }
+      });
 
-app.get("/api/organisations/:orgId", authenticate, async (req, res) => {
-  const organisation = await prisma.organisation.findUnique({
-    where: { orgId: req.params.orgId },
-  });
-  if (!organisation) return res.sendStatus(404);
+      const accessToken = jwt.sign({ userId: user.userId }, JWT_SECRET, {
+        expiresIn: '1h'
+      });
 
-  res.status(200).json({
-    status: "success",
-    message: "Organisation record fetched successfully",
-    data: {
-      orgId: organisation.orgId,
-      name: organisation.name,
-      description: organisation.description,
-    },
-  });
-});
+      res.status(201).json({
+        status: 'success',
+        message: 'Registration successful',
+        data: {
+          accessToken,
+          user: {
+            userId: user.userId,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            email: user.email,
+            phone: user.phone
+          }
+        }
+      });
+    } catch (error) {
+      console.error(error);
+      res.status(400).json({
+        status: 'Bad request',
+        message: 'Registration unsuccessful'
+      });
+    }
+  }
+);
 
-app.post("/api/organisations", authenticate, async (req, res) => {
-  const { name, description } = req.body;
+app.post('/auth/login', async (req, res) => {
+  const { email, password } = req.body;
 
-  if (!name) {
-    return res.status(422).json({
-      errors: [{ field: "name", message: "Name is required" }],
+  try {
+    const user = await prisma.user.findUnique({
+      where: { email }
+    });
+
+    if (user && (await bcrypt.compare(password, user.password))) {
+      const accessToken = jwt.sign({ userId: user.userId }, JWT_SECRET, {
+        expiresIn: '1h'
+      });
+
+      res.json({
+        status: 'success',
+        message: 'Login successful',
+        data: {
+          accessToken,
+          user: {
+            userId: user.userId,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            email: user.email,
+            phone: user.phone
+          }
+        }
+      });
+    } else {
+      res.status(401).json({
+        status: 'Bad request',
+        message: 'Authentication failed'
+      });
+    }
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Internal server error'
     });
   }
-
-  const organisation = await prisma.organisation.create({
-    data: {
-      name,
-      description,
-      users: { create: { userId: req.user.userId } },
-    },
-  });
-
-  res.status(201).json({
-    status: "success",
-    message: "Organisation created successfully",
-    data: {
-      orgId: organisation.orgId,
-      name: organisation.name,
-      description: organisation.description,
-    },
-  });
 });
 
-app.post("/api/organisations/:orgId/users", authenticate, async (req, res) => {
+app.get('/api/users/:id', authenticateToken, async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const user = await prisma.user.findUnique({
+      where: { userId: id }
+    });
+
+    if (!user) {
+      return res.sendStatus(404);
+    }
+
+    res.json({
+      status: 'success',
+      message: 'User record fetched successfully',
+      data: user
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Internal server error'
+    });
+  }
+});
+
+app.get('/api/organisations', authenticateToken, async (req, res) => {
+  try {
+    const organisations = await prisma.organisation.findMany({
+      include: {
+        users: true
+      }
+    });
+
+    res.json({
+      status: 'success',
+      message: 'Organisations fetched successfully',
+      data: { organisations }
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Internal server error'
+    });
+  }
+});
+
+app.post('/api/organisations', authenticateToken, 
+  body('name').notEmpty().withMessage('Name is required'),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(422).json({ errors: errors.array() });
+    }
+
+    const { name, description } = req.body;
+
+    try {
+      const organisation = await prisma.organisation.create({
+        data: {
+          name,
+          description,
+          users: {
+            create: {
+              user: { connect: { userId: req.user.userId } }
+            }
+          }
+        }
+      });
+
+      res.status(201).json({
+        status: 'success',
+        message: 'Organisation created successfully',
+        data: organisation
+      });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({
+        status: 'error',
+        message: 'Internal server error'
+      });
+    }
+  }
+);
+
+app.post('/api/organisations/:orgId/users', authenticateToken, async (req, res) => {
+  const { orgId } = req.params;
   const { userId } = req.body;
 
-  await prisma.organisationsOnUsers.create({
-    data: {
-      userId,
-      orgId: req.params.orgId,
-    },
-  });
+  try {
+    const organisation = await prisma.organisation.findUnique({
+      where: { orgId },
+      include: { users: true }
+    });
 
-  res.status(200).json({
-    status: "success",
-    message: "User added to organisation successfully",
-  });
+    if (!organisation) {
+      return res.sendStatus(404);
+    }
+
+    await prisma.organisationsOnUsers.create({
+      data: {
+        userId,
+        orgId
+      }
+    });
+
+    res.status(201).json({
+      status: 'success',
+      message: 'User added to organisation successfully'
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Internal server error'
+    });
+  }
 });
 
 export default app;
