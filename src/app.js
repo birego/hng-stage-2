@@ -7,6 +7,7 @@ import jwt from "jsonwebtoken";
 import { PrismaClient } from "@prisma/client";
 
 dotenv.config();
+
 const port = process.env.PORT || 3000;
 const app = express();
 const prisma = new PrismaClient();
@@ -26,6 +27,8 @@ const validateUser = (user) => {
 };
 
 app.post("/auth/register", async (req, res) => {
+  console.log("Register request body:", req.body);
+
   const { firstName, lastName, email, password, phone } = req.body;
 
   const errors = validateUser(req.body);
@@ -35,6 +38,7 @@ app.post("/auth/register", async (req, res) => {
 
   try {
     const hashedPassword = await bcrypt.hash(password, 10);
+    console.log("Hashed password:", hashedPassword);
 
     const user = await prisma.user.create({
       data: {
@@ -55,6 +59,7 @@ app.post("/auth/register", async (req, res) => {
       },
     });
 
+    console.log("User created:", user);
 
     const token = jwt.sign({ userId: user.userId }, JWT_SECRET, {
       expiresIn: "1h",
@@ -225,6 +230,10 @@ app.post("/api/organisations/:orgId/users", authenticate, async (req, res) => {
     status: "success",
     message: "User added to organisation successfully",
   });
+});
+
+app.listen(port, () => {
+  console.log(`Server is running on port ${port}`);
 });
 
 export default app;
